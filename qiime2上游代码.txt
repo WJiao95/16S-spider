@@ -1,0 +1,149 @@
+
+
+# 1. 导入原始数据（双端测序数据示例）
+qiime tools import \
+  --type 'SampleData[PairedEndSequencesWithQuality]' \
+  --input-path ../data \
+  --input-format CasavaOneEightSingleLanePerSampleDirFmt \
+  --output-path demux-paired-end.qza
+
+# 2. 查看数据质量
+qiime demux summarize \
+  --i-data demux-paired-end.qza \
+  --o-visualization demux-summary.qzv
+
+# 3. 数据质控和特征表生成（使用DADA2）
+qiime dada2 denoise-paired \
+  --i-demultiplexed-seqs demux-paired-end.qza \
+  --p-trunc-len-f 240 \
+  --p-trunc-len-r 160 \
+  --p-max-ee-f 2 \
+  --p-max-ee-r 2 \
+  --p-trim-left-f 0 \
+  --p-trim-left-r 0 \
+  --p-n-threads 8 \
+  --o-table table.qza \
+  --o-representative-sequences rep-seqs.qza \
+  --o-denoising-stats denoising-stats.qza
+
+# 4. 查看特征表和代表性序列的统计信息
+qiime feature-table summarize \
+  --i-table table.qza \
+  --o-visualization table-summary.qzv \
+  --m-sample-metadata-file ../metadata.tsv
+
+qiime feature-table tabulate-seqs \
+  --i-data rep-seqs.qza \
+  --o-visualization rep-seqs.qzv
+
+# 5. 查看去噪统计信息
+qiime metadata tabulate \
+  --m-input-file denoising-stats.qza \
+  --o-visualization denoising-stats.qzv
+
+# 6. 序列抽平（rarefaction）到20000
+qiime feature-table rarefy \
+  --i-table table.qza \
+  --p-sampling-depth 20000 \
+  --o-rarefied-table table-rarefied-20000.qza
+
+# 7. 生成抽平后的特征表统计信息
+qiime feature-table summarize \
+  --i-table table-rarefied-20000.qza \
+  --o-visualization table-rarefied-20000-summary.qzv \
+  --m-sample-metadata-file ../metadata.tsv
+
+# 8. 物种注释（使用Greengenes数据库示例）
+# 请先下载适合的数据库，如gg_13_8_99.qza和gg_13_8_99_tax.qza
+qiime feature-classifier classify-sklearn \
+  --i-classifier ../databases/gg_13_8_99_classifier.qza \
+  --i-reads rep-seqs.qza \
+  --o-classification taxonomy.qza
+
+# 9. 生成物种注释可视化结果
+qiime metadata tabulate \
+  --m-input-file taxonomy.qza \
+  --o-visualization taxonomy.qzv
+
+# 10. 生成物种组成堆叠图（门水平）
+qiime taxa barplot \
+  --i-table table-rarefied-20000.qza \
+  --i-taxonomy taxonomy.qza \
+  --m-metadata-file ../metadata.tsv \
+  --p-level 2 \
+  --o-visualization taxa-barplot-phylum.qzv
+
+# 11. 生成物种组成堆叠图（属水平）
+qiime taxa barplot \
+  --i-table table-rarefied-20000.qza \
+  --i-taxonomy taxonomy.qza \
+  --m-metadata-file ../metadata.tsv \
+  --p-level 6 \
+  --o-visualization taxa-barplot-genus.qzv
+
+# 12. 计算α多样性指数
+qiime diversity alpha-phylogenetic \
+  --i-table table-rarefied-20000.qza \
+  --i-phylogeny rooted-tree.qza \
+  --p-metric faith_pd \
+  --o-alpha-diversity faith-pd.qza
+
+qiime diversity alpha \
+  --i-table table-rarefied-20000.qza \
+  --p-metric shannon \
+  --o-alpha-diversity shannon.qza
+
+qiime diversity alpha \
+  --i-table table-rarefied-20000.qza \
+  --p-metric observed_features \
+  --o-alpha-diversity observed-features.qza
+
+# 13. 合并α多样性结果
+qiime metadata merge \
+  --m-metadata-file faith-pd.qza \
+  --m-metadata-file shannon.qza \
+  --m-metadata-file observed-features.qza \
+  --o-merged-metadata alpha-diversity-merged.qza
+
+# 14. 可视化α多样性
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity shannon.qza \
+  --m-metadata-file ../metadata.tsv \
+  --o-visualization shannon-group-significance.qzv
+
+# 15. 计算β多样性距离矩阵
+qiime diversity beta-phylogenetic \
+  --i-table table-rarefied-20000.qza \
+  --i-phylogeny rooted-tree.qza \
+  --p-metric unweighted_unifrac \
+  --o-distance-matrix unweighted-unifrac-distance-matrix.qza
+
+qiime diversity beta-phylogenetic \
+  --i-table table-rarefied-20000.qza \
+  --i-phylogeny rooted-tree.qza \
+  --p-metric weighted_unifrac \
+  --o-distance-matrix weighted-unifrac-distance-matrix.qza
+
+qiime diversity beta \
+  --i-table table-rarefied-20000.qza \
+  --p-metric braycurtis \
+  --o-distance-matrix bray-curtis-distance-matrix.qza
+
+# 16. 进行PCoA分析并可视化
+qiime diversity pcoa \
+  --i-distance-matrix unweighted-unifrac-distance-matrix.qza \
+  --o-pcoa unweighted-unifrac-pcoa.qza
+
+qiime emperor plot \
+  --i-pcoa unweighted-unifrac-pcoa.qza \
+  --m-metadata-file ../metadata.tsv \
+  --o-visualization unweighted-unifrac-emperor.qzv
+
+# 17. 计算β多样性组间差异显著性（PERMANOVA）
+qiime diversity adonis \
+  --i-distance-matrix unweighted-unifrac-distance-matrix.qza \
+  --m-metadata-file ../metadata.tsv \
+  --p-formula "Group" \  # 替换为你的分组列名
+  --o-visualization unweighted-unifrac-adonis.qzv
+
+
